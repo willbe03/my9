@@ -484,14 +484,14 @@ export default function My9V3App({
             <button
               type="button"
               className="inline-flex items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-2 text-sm font-bold text-gray-700 transition-colors hover:bg-gray-50"
-              onClick={() => router.push("/")}
+              onClick={() => router.push(`/${kind}`)}
             >
-              从空白重新开始
+              前往填写页面
             </button>
           </div>
         ) : (
           <div className="w-full max-w-xl">
-            <label className="mb-2 block text-sm font-semibold text-gray-700">创作者名（可选）</label>
+            <label className="mb-2 block text-sm font-semibold text-gray-700">创作者（推荐填写）</label>
             <Input
               value={creatorName}
               onChange={(event) => setCreatorName(event.target.value.slice(0, 40))}
@@ -520,16 +520,18 @@ export default function My9V3App({
           </div>
         )}
 
-        <ActionCluster
-          filledCount={filledCount}
-          readOnly={isReadonly}
-          saving={savingShare}
-          canUndo={Boolean(singleUndoSnapshot)}
-          canClear={filledCount > 0}
-          onUndo={handleUndo}
-          onClear={handleClear}
-          onSave={handleSaveShare}
-        />
+        {!isReadonly ? (
+          <ActionCluster
+            filledCount={filledCount}
+            readOnly={isReadonly}
+            saving={savingShare}
+            canUndo={Boolean(singleUndoSnapshot)}
+            canClear={filledCount > 0}
+            onUndo={handleUndo}
+            onClear={handleClear}
+            onSave={handleSaveShare}
+          />
+        ) : null}
 
         {isReadonly ? (
           <div className="flex w-full flex-col items-center gap-3">

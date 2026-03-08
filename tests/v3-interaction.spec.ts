@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { mkdirSync } from "node:fs";
 
 const SHARE_ID = "60fe04cbe7874fa2";
 const DEFAULT_KIND = "game";
@@ -16,7 +17,7 @@ function createFilledGames() {
     id: 2000 + index,
     name: `Game ${index + 1}`,
     localizedName: `游戏 ${index + 1}`,
-    cover: null,
+    cover: `https://lain.bgm.tv/r/400/pic/cover/l/mock-${index + 1}.jpg`,
     releaseYear: 2000 + index,
     gameTypeId: 0,
     platforms: ["PC"],
@@ -36,7 +37,7 @@ function buildSearchResponse(query: string, kind = DEFAULT_KIND) {
           id: 101,
           name: "The Legend of Zelda",
           localizedName: "塞尔达传说",
-          cover: null,
+          cover: "https://lain.bgm.tv/r/400/pic/cover/l/zelda.jpg",
           releaseYear: 2017,
           gameTypeId: 0,
           platforms: ["Nintendo Switch"],
@@ -45,7 +46,7 @@ function buildSearchResponse(query: string, kind = DEFAULT_KIND) {
           id: 102,
           name: "Stardew Valley",
           localizedName: "星露谷物语",
-          cover: null,
+          cover: "https://lain.bgm.tv/r/400/pic/cover/l/stardew.jpg",
           releaseYear: 2016,
           gameTypeId: 0,
           platforms: ["PC"],
@@ -68,7 +69,7 @@ function buildSearchResponse(query: string, kind = DEFAULT_KIND) {
         id,
         name: `Result ${query}`,
         localizedName: `结果 ${query}`,
-        cover: null,
+        cover: `https://lain.bgm.tv/r/400/pic/cover/l/result-${id}.jpg`,
         releaseYear: 2020,
         gameTypeId: 0,
         platforms: ["PC"],
@@ -96,6 +97,14 @@ async function mockV3Apis(page: Page) {
   });
 
   await page.route(/\/api\/share-image\/[^/?]+/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      body: Buffer.from(ONE_PIXEL_PNG_BASE64, "base64"),
+    });
+  });
+
+  await page.route(/https:\/\/wsrv\.nl\/\?url=/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "image/png",
@@ -268,7 +277,7 @@ test.describe("v3 interaction", () => {
     await secondSearchInput.press("Enter");
     await expect(page.getByText("《塞尔达传说》已在第 1 格选中")).toBeVisible();
     await expect(page.getByText("已填入第 2 格")).not.toBeVisible();
-    await page.getByRole("button", { name: "关闭搜索弹窗" }).click();
+    await page.getByRole("button", { name: "Close" }).click();
 
     await page.getByRole("button", { name: "编辑第 1 格评论" }).first().click();
     await page.getByPlaceholder("写下你想说的评论...").fill("终局剧情神作");
@@ -301,7 +310,7 @@ test.describe("v3 interaction", () => {
     await firstSearchInput.press("Enter");
     await expect(page.locator("#search-results-list button").first()).toBeVisible();
     await expect(page.locator("#search-results-list").getByText("塞尔达传说")).toBeVisible();
-    await page.getByRole("button", { name: "关闭搜索弹窗" }).click();
+    await page.getByRole("button", { name: "Close" }).click();
 
     await page.getByLabel("选择第 2 格游戏").click();
     const reopenedSearchInput = page.getByPlaceholder("输入游戏名");
@@ -358,7 +367,33 @@ test.describe("v3 interaction", () => {
     await expect(page.getByRole("button", { name: "清空" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "共享页面" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "保存图片" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "从空白重新开始" })).toBeVisible();
+    await expect(page.getByText("9 / 9 已选择")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "前往填写页面" })).toBeVisible();
+    await page.getByRole("button", { name: "前往填写页面" }).click();
+    await expect(page).toHaveURL(`/${DEFAULT_KIND}`, { timeout: 30_000 });
+  });
+
+  test("生成分享图片预览时会通过 wsrv 加载封面", async ({ page }) => {
+    await page.goto("/game");
+    await fillSlot(page, 1, "zelda");
+
+    page.on("dialog", async (dialog) => {
+      await dialog.accept();
+    });
+    await page.getByRole("button", { name: "还差 8 个可保存" }).click();
+    await expect(page).toHaveURL(`/${DEFAULT_KIND}/s/${SHARE_ID}`, { timeout: 30_000 });
+
+    const wsrvRequest = page.waitForRequest((request) =>
+      request.url().includes("https://wsrv.nl/?url=")
+    );
+
+    await page.getByRole("button", { name: "生成分享图片" }).click();
+    await expect(page.getByRole("heading", { name: "生成分享图片" })).toBeVisible();
+    await wsrvRequest;
+    await expect(page.getByAltText("分享图片预览")).toBeVisible({ timeout: 15_000 });
+
+    mkdirSync("screenshot", { recursive: true });
+    await page.screenshot({ path: "screenshot/share-image-preview-wsrv.png", fullPage: true });
   });
 
   test("只读页仅保留分享链接/分享图片，复制与导图可用", async ({ page }) => {
@@ -374,7 +409,11 @@ test.describe("v3 interaction", () => {
     await expect(page.getByRole("button", { name: "B站文案" })).toHaveCount(0);
 
     await page.getByRole("button", { name: "生成分享链接" }).click();
-    await expect(page.getByText("已生成并复制分享链接")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "生成分享链接" })).toBeVisible();
+    const linkInput = page.getByRole("textbox", { name: "当前分享链接" });
+    await expect(linkInput).toHaveValue(new RegExp(`/${DEFAULT_KIND}/s/${SHARE_ID}$`));
+    await page.getByRole("button", { name: "复制链接" }).click();
+    await expect(page.getByText("复制成功", { exact: true })).toBeVisible();
     const copied = await page.evaluate(() => {
       const g = window as typeof window & { __clipboardWrites?: string[] };
       return g.__clipboardWrites || [];
@@ -385,34 +424,72 @@ test.describe("v3 interaction", () => {
       const g = window as typeof window & { __clipboardFail?: boolean };
       g.__clipboardFail = true;
     });
-    await page.getByRole("button", { name: "生成分享链接" }).click();
-    await expect(page.getByText("生成分享链接失败，请手动复制")).toBeVisible();
+    await page.getByRole("button", { name: "复制链接" }).click();
+    await expect(page.getByText("复制失败，请手动复制上方链接。", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "关闭" }).click();
 
     await page.getByRole("button", { name: "生成分享图片" }).click();
     await expect(page.getByRole("heading", { name: "生成分享图片" })).toBeVisible();
-    const qrSwitch = page.getByRole("switch", { name: "附带二维码和提示文案" });
+    const qrSwitch = page.getByRole("switch", { name: "附带分享链接" });
+    const showNameSwitch = page.getByRole("switch", { name: "显示名称" });
     await expect(qrSwitch).toHaveAttribute("aria-checked", "true");
-    await expect(page.getByText("已开启：底部追加扫码区与文案")).toBeVisible();
+    await expect(showNameSwitch).toHaveAttribute("aria-checked", "true");
     await expect(page.getByAltText("分享图片预览")).toBeVisible({ timeout: 15_000 });
+
+    await page.evaluate(() => {
+      const g = window as typeof window & {
+        __MY9_LAST_DOWNLOAD_NAME__?: string;
+        __ORIGIN_ANCHOR_SET_ATTRIBUTE__?: typeof HTMLAnchorElement.prototype.setAttribute;
+      };
+      if (!g.__ORIGIN_ANCHOR_SET_ATTRIBUTE__) {
+        g.__ORIGIN_ANCHOR_SET_ATTRIBUTE__ = HTMLAnchorElement.prototype.setAttribute;
+        HTMLAnchorElement.prototype.setAttribute = function (name: string, value: string) {
+          if (name === "download") {
+            g.__MY9_LAST_DOWNLOAD_NAME__ = value;
+          }
+          return g.__ORIGIN_ANCHOR_SET_ATTRIBUTE__!.call(this, name, value);
+        };
+      }
+    });
+
     await page.getByRole("button", { name: "保存图片" }).click();
 
     const exportInfo = await page.evaluate(() => {
       const g = window as typeof window & {
-        __MY9_LAST_SHARE_EXPORT__?: { width: number; height: number };
+        __MY9_LAST_SHARE_EXPORT__?: { width: number; height: number; showNames?: boolean };
       };
       return g.__MY9_LAST_SHARE_EXPORT__ || null;
+    });
+    const downloadName = await page.evaluate(() => {
+      const g = window as typeof window & { __MY9_LAST_DOWNLOAD_NAME__?: string };
+      return g.__MY9_LAST_DOWNLOAD_NAME__ || "";
     });
     expect(exportInfo).not.toBeNull();
     expect(exportInfo?.width).toBe(1080);
     expect(exportInfo?.height).toBe(1660);
+    expect(exportInfo?.showNames).toBeTruthy();
+    expect(downloadName.endsWith(".png")).toBeTruthy();
+    expect(downloadName.includes("分享图")).toBeFalsy();
+    expect(downloadName).toContain("测试玩家");
+
+    await showNameSwitch.click();
+    await expect(showNameSwitch).toHaveAttribute("aria-checked", "false");
+    await page.getByRole("button", { name: "保存图片" }).click();
+    const exportInfoWithoutNames = await page.evaluate(() => {
+      const g = window as typeof window & {
+        __MY9_LAST_SHARE_EXPORT__?: { showNames?: boolean };
+      };
+      return g.__MY9_LAST_SHARE_EXPORT__ || null;
+    });
+    expect(exportInfoWithoutNames?.showNames).toBeFalsy();
 
     await qrSwitch.click();
     await expect(qrSwitch).toHaveAttribute("aria-checked", "false");
-    await expect(page.getByText("已关闭：仅保留基础分享图")).toBeVisible();
 
     await page.evaluate(() => {
       const g = window as typeof window & {
         __ORIGIN_CREATE_OBJECT_URL__?: typeof URL.createObjectURL;
+        __ORIGIN_ANCHOR_SET_ATTRIBUTE__?: typeof HTMLAnchorElement.prototype.setAttribute;
       };
       g.__ORIGIN_CREATE_OBJECT_URL__ = URL.createObjectURL;
       URL.createObjectURL = (() => {
@@ -424,9 +501,13 @@ test.describe("v3 interaction", () => {
     await page.evaluate(() => {
       const g = window as typeof window & {
         __ORIGIN_CREATE_OBJECT_URL__?: typeof URL.createObjectURL;
+        __ORIGIN_ANCHOR_SET_ATTRIBUTE__?: typeof HTMLAnchorElement.prototype.setAttribute;
       };
       if (g.__ORIGIN_CREATE_OBJECT_URL__) {
         URL.createObjectURL = g.__ORIGIN_CREATE_OBJECT_URL__;
+      }
+      if (g.__ORIGIN_ANCHOR_SET_ATTRIBUTE__) {
+        HTMLAnchorElement.prototype.setAttribute = g.__ORIGIN_ANCHOR_SET_ATTRIBUTE__;
       }
     });
   });
@@ -443,5 +524,18 @@ test.describe("v3 interaction", () => {
 
     await page.goto("/game");
     await expect(page.getByPlaceholder("输入你的昵称")).toHaveValue("游戏玩家");
+  });
+
+  test("移动端分享按钮顺序为图片在上链接在下", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/${DEFAULT_KIND}/s/${SHARE_ID}`);
+    await expect(page.getByText("正在加载共享页面...")).not.toBeVisible({ timeout: 15_000 });
+
+    const imageButton = page.getByRole("button", { name: "生成分享图片" });
+    const linkButton = page.getByRole("button", { name: "生成分享链接" });
+    const [imageBox, linkBox] = await Promise.all([imageButton.boundingBox(), linkButton.boundingBox()]);
+    expect(imageBox).not.toBeNull();
+    expect(linkBox).not.toBeNull();
+    expect((imageBox?.y || 0) < (linkBox?.y || 0)).toBeTruthy();
   });
 });

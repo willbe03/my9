@@ -140,12 +140,39 @@ function trimTextToWidth(
 }
 
 async function loadCovers(games: Array<ShareGame | null>) {
+  function normalizeCoverUrl(value: string): string | null {
+    const raw = value.trim();
+    if (!raw) return null;
+
+    if (raw.startsWith("//")) {
+      return `https:${raw}`;
+    }
+
+    try {
+      return new URL(raw).toString();
+    } catch {
+      try {
+        return new URL(raw, "https://bgm.tv").toString();
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  function toWsrvUrl(value: string): string | null {
+    const normalized = normalizeCoverUrl(value);
+    if (!normalized) return null;
+    return `https://wsrv.nl/?url=${encodeURIComponent(normalized)}&w=640&output=webp`;
+  }
+
   const coverPromises = games.map(async (game) => {
     const cover = game?.cover?.trim();
     if (!cover) return null;
+    const wsrvUrl = toWsrvUrl(cover);
+    if (!wsrvUrl) return null;
 
     try {
-      const response = await fetch(cover, { cache: "force-cache" });
+      const response = await fetch(wsrvUrl, { cache: "force-cache" });
       if (!response.ok) return null;
       return await blobToImage(await response.blob());
     } catch {
@@ -180,7 +207,8 @@ function drawBoardPanel(ctx: CanvasRenderingContext2D, panelHeight: number) {
 function drawGrid(
   ctx: CanvasRenderingContext2D,
   games: Array<ShareGame | null>,
-  covers: Array<HTMLImageElement | null>
+  covers: Array<HTMLImageElement | null>,
+  showNames: boolean
 ) {
   const innerWidth = PANEL_WIDTH - PANEL_PADDING * 2;
   const gridHeight = BASE_PANEL_HEIGHT - PANEL_PADDING * 2;
@@ -220,13 +248,20 @@ function drawGrid(
     ctx.textAlign = "left";
     ctx.fillText(String(index + 1), x + 12, y + 24);
 
-    const game = games[index] || null;
-    if (game && !cover) {
-      ctx.fillStyle = "#6b7280";
-      ctx.font = "600 18px sans-serif";
+    if (showNames) {
+      const stripHeight = 52;
+      const stripY = y + slotHeight - stripHeight;
+      const game = games[index] || null;
+      const name = trimTextToWidth(ctx, displayName(game), slotWidth - 20);
+
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.fillRect(x, stripY, slotWidth, stripHeight);
+      ctx.fillStyle = "#111827";
+      ctx.font = "700 21px sans-serif";
       ctx.textAlign = "center";
-      const name = trimTextToWidth(ctx, displayName(game), slotWidth - 16);
-      ctx.fillText(name, x + slotWidth / 2, y + slotHeight - 16);
+      ctx.textBaseline = "middle";
+      ctx.fillText(name, x + slotWidth / 2, stripY + stripHeight / 2 + 1);
+      ctx.textBaseline = "alphabetic";
     }
   }
 }
@@ -235,8 +270,9 @@ async function createBoardCanvas(options: {
   games: Array<ShareGame | null>;
   totalHeight: number;
   panelHeight: number;
+  showNames: boolean;
 }) {
-  const { games, totalHeight, panelHeight } = options;
+  const { games, totalHeight, panelHeight, showNames } = options;
   const covers = await loadCovers(games);
 
   const canvas = document.createElement("canvas");
@@ -250,7 +286,7 @@ async function createBoardCanvas(options: {
 
   drawPageBackground(ctx, totalHeight);
   drawBoardPanel(ctx, panelHeight);
-  drawGrid(ctx, games, covers);
+  drawGrid(ctx, games, covers, showNames);
 
   return canvas;
 }
@@ -258,11 +294,13 @@ async function createBoardCanvas(options: {
 export async function generateStandardShareImageBlob(options: {
   games: Array<ShareGame | null>;
   creatorName?: string | null;
+  showNames?: boolean;
 }) {
   const canvas = await createBoardCanvas({
     games: options.games,
     totalHeight: CANVAS_HEIGHT,
     panelHeight: BASE_PANEL_HEIGHT,
+    showNames: options.showNames !== false,
   });
   return canvasToBlob(canvas);
 }
@@ -274,6 +312,7 @@ export async function generateEnhancedShareImageBlob(options: {
   games: Array<ShareGame | null>;
   creatorName?: string | null;
   origin?: string;
+  showNames?: boolean;
 }) {
   const origin = options.origin ?? window.location.origin;
   const shareUrl = `${origin}/${options.kind}/s/${options.shareId}`;
@@ -282,6 +321,7 @@ export async function generateEnhancedShareImageBlob(options: {
     games: options.games,
     totalHeight: CANVAS_HEIGHT + ENHANCED_EXTRA_HEIGHT,
     panelHeight: BASE_PANEL_HEIGHT + ENHANCED_EXTRA_HEIGHT,
+    showNames: options.showNames !== false,
   });
 
   const ctx = canvas.getContext("2d");
@@ -305,7 +345,7 @@ export async function generateEnhancedShareImageBlob(options: {
   const line2 =
     reviewCount > 0
       ? `扫码查看${userName}的${reviewCount}条评价`
-      : "扫码查看游戏详情";
+      : `扫码查看${kindMeta.label}详情`;
 
   const extY = PANEL_Y + BASE_PANEL_HEIGHT;
   const extHeight = ENHANCED_EXTRA_HEIGHT;
@@ -339,6 +379,7 @@ export async function generateEnhancedShareImageBlob(options: {
     width: canvas.width,
     height: canvas.height,
     shareUrl,
+    showNames: options.showNames !== false,
   };
 
   return canvasToBlob(canvas);
@@ -363,8 +404,9 @@ export async function exportEnhancedShareImage(options: {
   games: Array<ShareGame | null>;
   creatorName?: string | null;
   origin?: string;
+  showNames?: boolean;
 }) {
   const blob = await generateEnhancedShareImageBlob(options);
-  const fileName = `${options.title || "构成我的九部"}分享图增强版.png`;
+  const fileName = `${options.title || "构成我的九部"}.png`;
   downloadBlob(blob, fileName);
 }

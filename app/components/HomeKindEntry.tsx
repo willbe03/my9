@@ -87,60 +87,60 @@ export default function HomeKindEntry() {
 
   return (
     <main className="min-h-screen bg-[#f3f6fb] px-4 py-10 text-gray-800 sm:px-6 sm:py-14">
-      <div className="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-3xl flex-col justify-between sm:min-h-[calc(100vh-7rem)]">
-        <section className="flex flex-1 items-center justify-center">
-          <div className="inline-flex items-center">
-            <h1 className="whitespace-nowrap pr-2 text-[2.08rem] font-black leading-none tracking-tight text-gray-900 sm:pr-3 sm:text-[3.3rem]">
-              构成我的九部
-            </h1>
+      <div className="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-3xl items-center justify-center sm:min-h-[calc(100vh-7rem)]">
+        <section className="flex w-full justify-center">
+          <div className="flex flex-col items-center gap-6 sm:gap-8">
+            <div className="inline-flex items-center">
+              <h1 className="whitespace-nowrap pr-2 text-[2.08rem] font-black leading-none tracking-tight text-gray-900 sm:pr-3 sm:text-[3.3rem]">
+                构成我的九部
+              </h1>
 
-            <div className="relative border-x-2 border-gray-900 px-2 sm:px-3">
-              <div
-                ref={pickerRef}
-                onScroll={onPickerScroll}
-                className="h-56 snap-y snap-mandatory overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:h-72"
-              >
-                <div className="h-20 sm:h-28" aria-hidden />
-                {SUBJECT_KIND_ORDER.map((item) => {
-                  const meta = getSubjectKindMeta(item);
-                  const active = item === kind;
-                  return (
-                    <button
-                      key={item}
-                      type="button"
-                      ref={(element) => {
-                        optionRefs.current[item] = element;
-                      }}
-                      onClick={() => {
-                        setKind(item);
-                        scrollKindIntoCenter(item, "smooth");
-                      }}
-                      className={cn(
-                        "block w-full snap-center py-2 text-center font-black leading-none tracking-tight transition-colors duration-200 sm:py-3",
-                        item === "lightnovel"
-                          ? "text-[1.68rem] sm:text-[2.35rem]"
-                          : "text-[2.08rem] sm:text-[3rem]",
-                        active ? "text-gray-900" : "text-gray-400 hover:text-gray-600"
-                      )}
-                    >
-                      {meta.label}
-                    </button>
-                  );
-                })}
-                <div className="h-20 sm:h-28" aria-hidden />
+              <div className="relative border-x-2 border-gray-900 px-2 sm:px-3">
+                <div
+                  ref={pickerRef}
+                  onScroll={onPickerScroll}
+                  className="h-56 snap-y snap-mandatory overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:h-72"
+                >
+                  <div className="h-20 sm:h-28" aria-hidden />
+                  {SUBJECT_KIND_ORDER.map((item) => {
+                    const meta = getSubjectKindMeta(item);
+                    const active = item === kind;
+                    return (
+                      <button
+                        key={item}
+                        type="button"
+                        ref={(element) => {
+                          optionRefs.current[item] = element;
+                        }}
+                        onClick={() => {
+                          setKind(item);
+                          scrollKindIntoCenter(item, "smooth");
+                        }}
+                        className={cn(
+                          "block w-full snap-center py-2 text-center font-black leading-none tracking-tight transition-colors duration-200 sm:py-3",
+                          item === "lightnovel"
+                            ? "text-[1.68rem] sm:text-[2.35rem]"
+                            : "text-[2.08rem] sm:text-[3rem]",
+                          active ? "text-gray-900" : "text-gray-400 hover:text-gray-600"
+                        )}
+                      >
+                        {meta.label}
+                      </button>
+                    );
+                  })}
+                  <div className="h-20 sm:h-28" aria-hidden />
+                </div>
               </div>
             </div>
+
+            <Button
+              asChild
+              className="inline-flex h-auto w-full max-w-sm items-center justify-center rounded-full bg-sky-600 px-4 py-3 text-sm font-bold text-white shadow-sm shadow-sky-200 transition-all hover:bg-sky-700"
+            >
+              <Link href={`/${kind}`}>开始填写！</Link>
+            </Button>
           </div>
         </section>
-
-        <div className="flex justify-center pb-5 pt-8 sm:pb-8 sm:pt-10">
-          <Button
-            asChild
-            className="inline-flex h-auto w-full max-w-sm items-center justify-center rounded-full bg-sky-600 px-4 py-3 text-sm font-bold text-white shadow-sm shadow-sky-200 transition-all hover:bg-sky-700"
-          >
-            <Link href={`/${kind}`}>开始填写！</Link>
-          </Button>
-        </div>
       </div>
     </main>
   );

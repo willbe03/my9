@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -33,9 +32,8 @@ interface ShareImagePreviewDialogProps {
   onNotice: (kind: NoticeKind, message: string) => void;
 }
 
-function buildFileName(title: string, withQr: boolean) {
-  const suffix = withQr ? "分享图二维码版" : "分享图";
-  return `${title || "构成我的九部"}${suffix}.png`;
+function buildFileName(title: string) {
+  return `${title || "构成我的九部"}.png`;
 }
 
 export function ShareImagePreviewDialog({
@@ -49,6 +47,7 @@ export function ShareImagePreviewDialog({
   onNotice,
 }: ShareImagePreviewDialogProps) {
   const [withQr, setWithQr] = useState(true);
+  const [showNames, setShowNames] = useState(true);
   const [loading, setLoading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
@@ -58,6 +57,7 @@ export function ShareImagePreviewDialog({
   useEffect(() => {
     if (!open) {
       setWithQr(true);
+      setShowNames(true);
       setLoading(false);
       setPreviewBlob(null);
       setPreviewError("");
@@ -78,8 +78,15 @@ export function ShareImagePreviewDialog({
       setPreviewError("");
       try {
         const blob = withQr
-          ? await generateEnhancedShareImageBlob({ kind, shareId, title, games, creatorName })
-          : await generateStandardShareImageBlob({ games, creatorName });
+          ? await generateEnhancedShareImageBlob({
+              kind,
+              shareId,
+              title,
+              games,
+              creatorName,
+              showNames,
+            })
+          : await generateStandardShareImageBlob({ games, creatorName, showNames });
 
         if (requestId !== requestIdRef.current) return;
         const nextUrl = URL.createObjectURL(blob);
@@ -104,16 +111,23 @@ export function ShareImagePreviewDialog({
     }
 
     loadPreview();
-  }, [creatorName, games, kind, open, shareId, title, withQr]);
+  }, [creatorName, games, kind, open, shareId, showNames, title, withQr]);
 
   async function handleDownload() {
     try {
       const blob =
         previewBlob ||
         (withQr
-          ? await generateEnhancedShareImageBlob({ kind, shareId, title, games, creatorName })
-          : await generateStandardShareImageBlob({ games, creatorName }));
-      downloadBlob(blob, buildFileName(title, withQr));
+          ? await generateEnhancedShareImageBlob({
+              kind,
+              shareId,
+              title,
+              games,
+              creatorName,
+              showNames,
+            })
+          : await generateStandardShareImageBlob({ games, creatorName, showNames }));
+      downloadBlob(blob, buildFileName(title));
     } catch {
       onNotice("info", "下载失败，请长按预览图保存");
     }
@@ -153,9 +167,6 @@ export function ShareImagePreviewDialog({
           <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
             <div className="pr-3">
               <p className="text-sm font-semibold text-slate-800">附带分享链接</p>
-              <p className="text-xs text-slate-500">
-                {withQr ? "已开启：底部追加扫码区与文案" : "已关闭：仅保留基础分享图"}
-              </p>
             </div>
             <button
               type="button"
@@ -176,10 +187,34 @@ export function ShareImagePreviewDialog({
               />
             </button>
           </div>
+
+          <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+            <div className="pr-3">
+              <p className="text-sm font-semibold text-slate-800">显示名称</p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={showNames}
+              aria-label="显示名称"
+              onClick={() => setShowNames((value) => !value)}
+              className={cn(
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                showNames ? "bg-sky-600" : "bg-slate-300"
+              )}
+            >
+              <span
+                className={cn(
+                  "inline-block h-5 w-5 transform rounded-full bg-white transition-transform",
+                  showNames ? "translate-x-5" : "translate-x-1"
+                )}
+              />
+            </button>
+          </div>
         </div>
 
         <DialogFooter className="sm:justify-between">
-          <p className="text-xs text-slate-500">如果下载失败，请直接长按预览图保存。</p>
+          <p className="text-xs text-slate-500">如果下载失败，可以尝试长按预览图保存。</p>
           <Button
             type="button"
             onClick={handleDownload}

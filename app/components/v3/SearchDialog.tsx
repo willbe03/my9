@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo } from "react";
 import Image from "next/image";
-import { AlertCircle, Loader2, RefreshCw, Search, X } from "lucide-react";
+import { AlertCircle, Loader2, RefreshCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -120,19 +120,9 @@ export function SearchDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] max-h-[90vh] overflow-y-auto sm:max-w-md md:max-w-lg lg:max-w-xl [&>button]:hidden">
+      <DialogContent className="w-[95vw] max-h-[90vh] overflow-y-auto sm:max-w-md md:max-w-lg lg:max-w-xl">
         <DialogHeader>
-          <div className="flex items-start justify-between gap-3">
-            <DialogTitle>{dialogTitle}</DialogTitle>
-            <button
-              type="button"
-              onClick={() => onOpenChange(false)}
-              aria-label="关闭搜索弹窗"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition-colors hover:bg-slate-100"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+          <DialogTitle>{dialogTitle}</DialogTitle>
         </DialogHeader>
 
         <div className="mb-4">

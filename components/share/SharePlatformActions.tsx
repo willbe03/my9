@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ShareImagePreviewDialog } from "@/components/share/ShareImagePreviewDialog";
+import { ShareLinkDialog } from "@/components/share/ShareLinkDialog";
 import { SubjectKind, getSubjectKindMeta } from "@/lib/subject-kind";
 import { ShareGame } from "@/lib/share/types";
 
@@ -16,23 +17,6 @@ interface SharePlatformActionsProps {
   onNotice: (kind: NoticeKind, message: string) => void;
 }
 
-async function copyText(value: string) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(value);
-    return;
-  }
-
-  const textarea = document.createElement("textarea");
-  textarea.value = value;
-  textarea.style.position = "fixed";
-  textarea.style.left = "-9999px";
-  document.body.appendChild(textarea);
-  textarea.focus();
-  textarea.select();
-  document.execCommand("copy");
-  document.body.removeChild(textarea);
-}
-
 export function SharePlatformActions({
   kind,
   shareId,
@@ -41,6 +25,7 @@ export function SharePlatformActions({
   onNotice,
 }: SharePlatformActionsProps) {
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const kindMeta = getSubjectKindMeta(kind);
   const shareUrl = useMemo(() => {
     if (!shareId) return null;
@@ -51,7 +36,7 @@ export function SharePlatformActions({
   const shareTitle = useMemo(() => {
     const name = creatorName?.trim();
     if (!name) return kindMeta.shareTitle;
-    return `${name}的${kindMeta.shareTitle}`;
+    return kindMeta.shareTitle.replace("我", name);
   }, [creatorName, kindMeta.shareTitle]);
 
   const disabled = !shareId;
@@ -62,26 +47,8 @@ export function SharePlatformActions({
   return (
     <div className="grid w-full max-w-[42rem] grid-cols-1 gap-3 sm:grid-cols-2">
       <Button
-        variant="outline"
-        className={baseClass}
-        data-testid="share-generate-link"
-        disabled={disabled}
-        onClick={async () => {
-          if (!shareUrl) return;
-          try {
-            await copyText(shareUrl);
-            onNotice("success", "已生成并复制分享链接");
-          } catch {
-            onNotice("error", "生成分享链接失败，请手动复制");
-          }
-        }}
-      >
-        生成分享链接
-      </Button>
-
-      <Button
         variant="default"
-        className="inline-flex items-center justify-center gap-2 rounded-full bg-gray-900 px-6 py-3 font-bold text-white transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-45"
+        className="order-1 inline-flex items-center justify-center gap-2 rounded-full bg-gray-900 px-6 py-3 font-bold text-white transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-45 sm:order-2"
         data-testid="share-generate-image"
         disabled={disabled}
         onClick={() => {
@@ -90,6 +57,19 @@ export function SharePlatformActions({
         }}
       >
         生成分享图片
+      </Button>
+
+      <Button
+        variant="outline"
+        className={`${baseClass} order-2 sm:order-1`}
+        data-testid="share-generate-link"
+        disabled={disabled}
+        onClick={() => {
+          if (!shareUrl) return;
+          setLinkDialogOpen(true);
+        }}
+      >
+        生成分享链接
       </Button>
 
       {shareId ? (
@@ -101,6 +81,14 @@ export function SharePlatformActions({
           title={shareTitle}
           games={games}
           creatorName={creatorName}
+          onNotice={onNotice}
+        />
+      ) : null}
+      {shareUrl ? (
+        <ShareLinkDialog
+          open={linkDialogOpen}
+          onOpenChange={setLinkDialogOpen}
+          shareUrl={shareUrl}
           onNotice={onNotice}
         />
       ) : null}
