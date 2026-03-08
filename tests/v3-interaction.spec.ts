@@ -258,7 +258,7 @@ test.describe("v3 interaction", () => {
     await expect(page.getByRole("button", { name: "生成分享图片" })).toHaveCount(0);
   });
 
-  test("搜索键盘选择、重复去重与评论剧透折叠生效", async ({ page }) => {
+  test("搜索键盘选择、重复项互换与评论剧透折叠生效", async ({ page }) => {
     await page.goto("/game");
 
     await page.getByLabel("选择第 1 格游戏").click();
@@ -271,13 +271,29 @@ test.describe("v3 interaction", () => {
 
     await page.getByLabel("选择第 2 格游戏").click();
     const secondSearchInput = page.getByPlaceholder("输入游戏名");
-    await secondSearchInput.fill("zelda");
+    await secondSearchInput.fill("q2");
     await secondSearchInput.press("Enter");
     await expect(page.locator("#search-results-list button").first()).toBeVisible();
     await secondSearchInput.press("Enter");
-    await expect(page.getByText("《塞尔达传说》已在第 1 格选中")).toBeVisible();
-    await expect(page.getByText("已填入第 2 格")).not.toBeVisible();
-    await page.getByRole("button", { name: "Close" }).click();
+    await expect(page.getByText("已填入第 2 格")).toBeVisible();
+
+    await page.getByLabel("选择第 2 格游戏").click();
+    const swapSearchInput = page.getByPlaceholder("输入游戏名");
+    await swapSearchInput.fill("zelda");
+    await swapSearchInput.press("Enter");
+    await expect(page.locator("#search-results-list button").first()).toBeVisible();
+    await swapSearchInput.press("Enter");
+    await expect(page.getByText("已与第 1 格互换")).toBeVisible();
+
+    const draftIds = await page.evaluate(() => {
+      const raw = localStorage.getItem("my-nine-game:v1");
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as { games?: Array<{ id?: number | string } | null> };
+      if (!Array.isArray(parsed.games)) return [];
+      return parsed.games.map((item) => item?.id ?? null);
+    });
+    expect(draftIds[0]).toBe(1063);
+    expect(draftIds[1]).toBe(101);
 
     await page.getByRole("button", { name: "编辑第 1 格评论" }).first().click();
     await page.getByPlaceholder("写下你想说的评论...").fill("终局剧情神作");

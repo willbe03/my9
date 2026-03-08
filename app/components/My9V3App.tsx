@@ -325,26 +325,44 @@ export default function My9V3App({
 
   function selectSearchResult(game: ShareGame) {
     if (selectedSlot === null) return;
+    const targetSlot = selectedSlot;
 
     const duplicateIndex = games.findIndex(
-      (item, index) => index !== selectedSlot && item && String(item.id) === String(game.id)
+      (item, index) => index !== targetSlot && item && String(item.id) === String(game.id)
     );
 
     if (duplicateIndex >= 0) {
-      const name = game.localizedName?.trim() || game.name;
-      pushToast("info", `《${name}》已在第 ${duplicateIndex + 1} 格选中`);
+      makeUndoSnapshot();
+      setGames((prev) => {
+        const next = [...prev];
+        const current = next[targetSlot];
+        const duplicate = next[duplicateIndex];
+        next[targetSlot] = duplicate ? { ...duplicate } : null;
+        next[duplicateIndex] = current ? { ...current } : null;
+        return next;
+      });
+      setSpoilerExpandedSet((prev) => {
+        if (!prev.has(targetSlot) && !prev.has(duplicateIndex)) return prev;
+        const next = new Set(prev);
+        next.delete(targetSlot);
+        next.delete(duplicateIndex);
+        return next;
+      });
+      setSearchOpen(false);
+      setSelectedSlot(null);
+      pushToast("success", `已与第 ${duplicateIndex + 1} 格互换`);
       return;
     }
 
-    updateSlot(selectedSlot, {
+    updateSlot(targetSlot, {
       ...game,
-      comment: games[selectedSlot]?.comment,
-      spoiler: games[selectedSlot]?.spoiler,
+      comment: games[targetSlot]?.comment,
+      spoiler: games[targetSlot]?.spoiler,
     });
 
     setSearchOpen(false);
     setSelectedSlot(null);
-    pushToast("success", `已填入第 ${selectedSlot + 1} 格`);
+    pushToast("success", `已填入第 ${targetSlot + 1} 格`);
   }
 
   function openComment(index: number) {
