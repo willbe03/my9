@@ -2,6 +2,7 @@ import type React from "react";
 import type { Metadata } from "next";
 import { Noto_Sans_SC } from "next/font/google";
 import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import GoogleAnalytics from "@/components/GoogleAnalytics";
 import "./globals.css";
 
@@ -44,6 +45,7 @@ export default function RootLayout({
       </head>
       <body className={notoSansSC.className}>
         <Analytics />
+        <SpeedInsights />
         {children}
       </body>
     </html>

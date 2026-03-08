@@ -50,7 +50,7 @@
 - 在 `.env.local`（勿提交）中配置：
   - `BANGUMI_ACCESS_TOKEN`
   - `BANGUMI_USER_AGENT`
-  - `UPSTASH_REDIS_REST_URL`、`UPSTASH_REDIS_REST_TOKEN`（如启用分享/趋势持久化）
+  - `POSTGRES_URL_NON_POOLING`（推荐）或 `POSTGRES_URL` / `DATABASE_URL` / `NEON_DATABASE_URL`（启用分享/趋势持久化）
 - 分享图封面当前通过 `wsrv.nl` 在前端拉取并绘制；修改该链路时需评估跨域与流量成本影响。
 
 ## 提交与 PR 建议

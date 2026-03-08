@@ -1,32 +1,34 @@
-import { Redis } from "@upstash/redis";
-import { StoredShareV1, TrendPeriod, TrendResponse, TrendView } from "@/lib/share/types";
+import { neon } from "@neondatabase/serverless";
+import { ShareSubject, StoredShareV1, TrendPeriod, TrendResponse, TrendView } from "@/lib/share/types";
 import { DEFAULT_SUBJECT_KIND, SubjectKind, parseSubjectKind } from "@/lib/subject-kind";
 
-const SHARE_KEY_PREFIX = "share:";
-const SHARE_IDS_KEY = "share:index:ids";
-const SHARE_INDEX_CREATED_KEY = "share:index:created";
-const SHARE_INDEX_UPDATED_KEY = "share:index:updated";
 const TRENDS_CACHE_PREFIX = "trends:cache:";
 
-const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
-const REDIS_ENABLED = Boolean(REDIS_URL && REDIS_TOKEN);
+const SHARES_TABLE = "my9_shares_v1";
+const TRENDS_CACHE_TABLE = "my9_trends_cache_v1";
+const SHARES_KIND_CREATED_IDX = `${SHARES_TABLE}_kind_created_idx`;
+const TRENDS_CACHE_EXPIRES_IDX = `${TRENDS_CACHE_TABLE}_expires_idx`;
 
-let redisClient: Redis | null = null;
+const DATABASE_URL =
+  process.env.POSTGRES_URL_NON_POOLING ||
+  process.env.POSTGRES_URL ||
+  process.env.DATABASE_URL ||
+  process.env.NEON_DATABASE_URL;
+const DATABASE_ENABLED = Boolean(DATABASE_URL);
 
-function getRedisClient(): Redis | null {
-  if (!REDIS_ENABLED) {
+type SqlClient = ReturnType<typeof neon>;
+
+let sqlClient: SqlClient | null = null;
+let schemaReadyPromise: Promise<void> | null = null;
+
+function getSqlClient(): SqlClient | null {
+  if (!DATABASE_ENABLED) {
     return null;
   }
-  if (!redisClient) {
-    redisClient = new Redis({
-      url: REDIS_URL!,
-      token: REDIS_TOKEN!,
-      cache: "default",
-      enableAutoPipelining: true,
-    });
+  if (!sqlClient) {
+    sqlClient = neon(DATABASE_URL!);
   }
-  return redisClient;
+  return sqlClient;
 }
 
 type MemoryStore = {
@@ -34,10 +36,87 @@ type MemoryStore = {
   trendCache: Map<string, { value: TrendResponse; expiresAt: number }>;
 };
 
+type ShareRow = {
+  share_id: string;
+  kind: string;
+  creator_name: string | null;
+  games: unknown;
+  created_at: number | string;
+  updated_at: number | string;
+  last_viewed_at: number | string;
+};
+
+type TrendCacheRow = {
+  payload: unknown;
+  expires_at: number | string;
+};
+
 function normalizeStoredShare(input: StoredShareV1): StoredShareV1 {
   return {
     ...input,
     kind: parseSubjectKind(input.kind) ?? DEFAULT_SUBJECT_KIND,
+  };
+}
+
+function createEmptyGames(): Array<ShareSubject | null> {
+  return Array.from({ length: 9 }, () => null);
+}
+
+function normalizeGames(value: unknown): Array<ShareSubject | null> {
+  if (!Array.isArray(value)) {
+    return createEmptyGames();
+  }
+
+  const next = createEmptyGames();
+  for (let index = 0; index < 9; index += 1) {
+    const item = value[index];
+    next[index] = item && typeof item === "object" ? (item as ShareSubject) : null;
+  }
+  return next;
+}
+
+function toNumber(value: unknown, fallback = 0): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.trunc(value);
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return Math.trunc(parsed);
+    }
+  }
+  return fallback;
+}
+
+function rowToStoredShare(row: ShareRow): StoredShareV1 {
+  return normalizeStoredShare({
+    shareId: String(row.share_id),
+    kind: (parseSubjectKind(row.kind) ?? DEFAULT_SUBJECT_KIND) as SubjectKind,
+    creatorName: typeof row.creator_name === "string" ? row.creator_name : null,
+    games: normalizeGames(row.games),
+    createdAt: toNumber(row.created_at, Date.now()),
+    updatedAt: toNumber(row.updated_at, Date.now()),
+    lastViewedAt: toNumber(row.last_viewed_at, Date.now()),
+  });
+}
+
+function parseTrendPayload(value: unknown): TrendResponse | null {
+  if (!value || typeof value !== "object") return null;
+  const data = value as Partial<TrendResponse>;
+  if (!data.period || !data.view || !data.range || !Array.isArray(data.items)) {
+    return null;
+  }
+
+  return {
+    period: data.period,
+    view: data.view,
+    sampleCount: typeof data.sampleCount === "number" ? data.sampleCount : 0,
+    range: {
+      from: typeof data.range.from === "number" ? data.range.from : null,
+      to: typeof data.range.to === "number" ? data.range.to : null,
+    },
+    lastUpdatedAt: typeof data.lastUpdatedAt === "number" ? data.lastUpdatedAt : Date.now(),
+    items: data.items,
   };
 }
 
@@ -59,117 +138,177 @@ function trendCacheKey(period: TrendPeriod, view: TrendView, kind: SubjectKind) 
   return `${TRENDS_CACHE_PREFIX}${period}:${view}:${kind}`;
 }
 
-async function safeRedisGet<T>(key: string): Promise<T | null> {
-  const redis = getRedisClient();
-  if (!redis) {
-    return null;
+async function ensureSchema(): Promise<boolean> {
+  const sql = getSqlClient();
+  if (!sql) {
+    return false;
+  }
+
+  if (!schemaReadyPromise) {
+    schemaReadyPromise = (async () => {
+      await sql`
+        CREATE TABLE IF NOT EXISTS ${sql.unsafe(SHARES_TABLE)} (
+          share_id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL,
+          creator_name TEXT,
+          games JSONB NOT NULL,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL,
+          last_viewed_at BIGINT NOT NULL
+        )
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS ${sql.unsafe(SHARES_KIND_CREATED_IDX)}
+        ON ${sql.unsafe(SHARES_TABLE)} (kind, created_at DESC)
+      `;
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS ${sql.unsafe(TRENDS_CACHE_TABLE)} (
+          cache_key TEXT PRIMARY KEY,
+          period TEXT NOT NULL,
+          view TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          payload JSONB NOT NULL,
+          expires_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
+        )
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS ${sql.unsafe(TRENDS_CACHE_EXPIRES_IDX)}
+        ON ${sql.unsafe(TRENDS_CACHE_TABLE)} (expires_at)
+      `;
+    })();
   }
 
   try {
-    return (await redis.get<T>(key)) ?? null;
+    await schemaReadyPromise;
+    return true;
   } catch {
+    schemaReadyPromise = null;
+    return false;
+  }
+}
+
+function getMemoryTrendCache(key: string): TrendResponse | null {
+  const item = getMemoryStore().trendCache.get(key);
+  if (!item) return null;
+  if (Date.now() > item.expiresAt) {
+    getMemoryStore().trendCache.delete(key);
     return null;
   }
+  return item.value;
 }
 
 export async function saveShare(record: StoredShareV1): Promise<void> {
   const normalizedRecord = normalizeStoredShare(record);
-  if (!REDIS_ENABLED) {
+  const sql = getSqlClient();
+  if (!sql || !(await ensureSchema())) {
     getMemoryStore().shares.set(normalizedRecord.shareId, normalizedRecord);
     return;
   }
 
-  const key = `${SHARE_KEY_PREFIX}${normalizedRecord.shareId}`;
-  const redis = getRedisClient();
-  if (!redis) {
-    getMemoryStore().shares.set(normalizedRecord.shareId, normalizedRecord);
-    return;
-  }
   try {
-    await redis.set(key, normalizedRecord);
-    await redis.sadd(SHARE_IDS_KEY, normalizedRecord.shareId);
-    await redis.zadd(SHARE_INDEX_CREATED_KEY, {
-      score: normalizedRecord.createdAt,
-      member: normalizedRecord.shareId,
-    });
-    await redis.zadd(SHARE_INDEX_UPDATED_KEY, {
-      score: normalizedRecord.updatedAt,
-      member: normalizedRecord.shareId,
-    });
+    await sql`
+      INSERT INTO ${sql.unsafe(SHARES_TABLE)} (
+        share_id,
+        kind,
+        creator_name,
+        games,
+        created_at,
+        updated_at,
+        last_viewed_at
+      )
+      VALUES (
+        ${normalizedRecord.shareId},
+        ${normalizedRecord.kind},
+        ${normalizedRecord.creatorName},
+        ${JSON.stringify(normalizedRecord.games)}::jsonb,
+        ${normalizedRecord.createdAt},
+        ${normalizedRecord.updatedAt},
+        ${normalizedRecord.lastViewedAt}
+      )
+      ON CONFLICT (share_id) DO UPDATE SET
+        kind = EXCLUDED.kind,
+        creator_name = EXCLUDED.creator_name,
+        games = EXCLUDED.games,
+        created_at = EXCLUDED.created_at,
+        updated_at = EXCLUDED.updated_at,
+        last_viewed_at = EXCLUDED.last_viewed_at
+    `;
   } catch {
     getMemoryStore().shares.set(normalizedRecord.shareId, normalizedRecord);
   }
 }
 
 export async function getShare(shareId: string): Promise<StoredShareV1 | null> {
-  if (!REDIS_ENABLED) {
-    const fromMemory = getMemoryStore().shares.get(shareId);
-    return fromMemory ? normalizeStoredShare(fromMemory) : null;
+  const sql = getSqlClient();
+  if (sql && (await ensureSchema())) {
+    try {
+      const rows = (await sql`
+        SELECT share_id, kind, creator_name, games, created_at, updated_at, last_viewed_at
+        FROM ${sql.unsafe(SHARES_TABLE)}
+        WHERE share_id = ${shareId}
+        LIMIT 1
+      `) as ShareRow[];
+      if (rows.length > 0) {
+        return rowToStoredShare(rows[0]);
+      }
+    } catch {
+      // fall through to memory fallback
+    }
   }
 
-  const key = `${SHARE_KEY_PREFIX}${shareId}`;
-  const fromRedis = await safeRedisGet<StoredShareV1 | (Omit<StoredShareV1, "kind"> & { kind?: unknown })>(key);
-  if (fromRedis) {
-    return normalizeStoredShare(fromRedis as StoredShareV1);
-  }
   const fromMemory = getMemoryStore().shares.get(shareId);
   return fromMemory ? normalizeStoredShare(fromMemory) : null;
 }
 
 export async function touchShare(shareId: string, now = Date.now()): Promise<boolean> {
-  const existing = await getShare(shareId);
-  if (!existing) {
-    return false;
+  const sql = getSqlClient();
+  if (sql && (await ensureSchema())) {
+    try {
+      const rows = (await sql`
+        UPDATE ${sql.unsafe(SHARES_TABLE)}
+        SET
+          updated_at = ${now},
+          last_viewed_at = ${now}
+        WHERE share_id = ${shareId}
+        RETURNING share_id
+      `) as Array<{ share_id: string }>;
+      if (rows.length > 0) {
+        return true;
+      }
+    } catch {
+      // fall through to memory fallback
+    }
   }
 
-  const updated: StoredShareV1 = {
-    ...existing,
+  const existing = getMemoryStore().shares.get(shareId);
+  if (!existing) return false;
+  getMemoryStore().shares.set(shareId, {
+    ...normalizeStoredShare(existing),
     updatedAt: now,
     lastViewedAt: now,
-  };
-  await saveShare(updated);
+  });
   return true;
 }
 
-async function getAllShareIdsFromRedis(): Promise<string[]> {
-  const redis = getRedisClient();
-  if (!redis) {
-    return [];
-  }
-
-  try {
-    const ids = await redis.smembers<string[]>(SHARE_IDS_KEY);
-    if (Array.isArray(ids)) {
-      return ids.map((id) => String(id));
-    }
-    return [];
-  } catch {
-    return [];
-  }
-}
-
 export async function listAllShares(): Promise<StoredShareV1[]> {
-  if (!REDIS_ENABLED) {
-    return Array.from(getMemoryStore().shares.values()).map((item) =>
-      normalizeStoredShare(item)
-    );
-  }
-
-  const ids = await getAllShareIdsFromRedis();
-  if (ids.length === 0) {
-    return Array.from(getMemoryStore().shares.values()).map((item) =>
-      normalizeStoredShare(item)
-    );
-  }
-
-  const results: StoredShareV1[] = [];
-  for (const shareId of ids) {
-    const record = await safeRedisGet<StoredShareV1>(`${SHARE_KEY_PREFIX}${shareId}`);
-    if (record) {
-      results.push(normalizeStoredShare(record));
+  const sql = getSqlClient();
+  if (sql && (await ensureSchema())) {
+    try {
+      const rows = (await sql`
+        SELECT share_id, kind, creator_name, games, created_at, updated_at, last_viewed_at
+        FROM ${sql.unsafe(SHARES_TABLE)}
+      `) as ShareRow[];
+      if (rows.length > 0) {
+        return rows.map((row) => rowToStoredShare(row));
+      }
+    } catch {
+      // fall through to memory fallback
     }
   }
-  return results;
+
+  return Array.from(getMemoryStore().shares.values()).map((item) => normalizeStoredShare(item));
 }
 
 function getPeriodStart(period: TrendPeriod, now = Date.now()): number {
@@ -187,8 +326,31 @@ function getPeriodStart(period: TrendPeriod, now = Date.now()): number {
 }
 
 export async function listSharesByPeriod(period: TrendPeriod): Promise<StoredShareV1[]> {
-  const all = await listAllShares();
+  const sql = getSqlClient();
   const from = getPeriodStart(period);
+
+  if (sql && (await ensureSchema())) {
+    try {
+      if (from > 0) {
+        const rows = (await sql`
+          SELECT share_id, kind, creator_name, games, created_at, updated_at, last_viewed_at
+          FROM ${sql.unsafe(SHARES_TABLE)}
+          WHERE created_at >= ${from}
+        `) as ShareRow[];
+        return rows.map((row) => rowToStoredShare(row));
+      }
+
+      const rows = (await sql`
+        SELECT share_id, kind, creator_name, games, created_at, updated_at, last_viewed_at
+        FROM ${sql.unsafe(SHARES_TABLE)}
+      `) as ShareRow[];
+      return rows.map((row) => rowToStoredShare(row));
+    } catch {
+      // fall through to memory fallback
+    }
+  }
+
+  const all = Array.from(getMemoryStore().shares.values()).map((item) => normalizeStoredShare(item));
   return all.filter((item) => item.createdAt >= from);
 }
 
@@ -198,28 +360,45 @@ export async function getTrendsCache(
   kind: SubjectKind
 ): Promise<TrendResponse | null> {
   const key = trendCacheKey(period, view, kind);
-  if (!REDIS_ENABLED) {
-    const item = getMemoryStore().trendCache.get(key);
-    if (!item) return null;
-    if (Date.now() > item.expiresAt) {
-      getMemoryStore().trendCache.delete(key);
-      return null;
+  const fromMemory = getMemoryTrendCache(key);
+  if (fromMemory) return fromMemory;
+
+  const sql = getSqlClient();
+  if (sql && (await ensureSchema())) {
+    try {
+      const rows = (await sql`
+        SELECT payload, expires_at
+        FROM ${sql.unsafe(TRENDS_CACHE_TABLE)}
+        WHERE cache_key = ${key}
+        LIMIT 1
+      `) as TrendCacheRow[];
+
+      if (rows.length > 0) {
+        const row = rows[0];
+        const expiresAt = toNumber(row.expires_at, 0);
+        if (Date.now() > expiresAt) {
+          await sql`
+            DELETE FROM ${sql.unsafe(TRENDS_CACHE_TABLE)}
+            WHERE cache_key = ${key}
+          `;
+          return null;
+        }
+
+        const payload = parseTrendPayload(row.payload);
+        if (payload) {
+          getMemoryStore().trendCache.set(key, {
+            value: payload,
+            expiresAt,
+          });
+          return payload;
+        }
+      }
+    } catch {
+      // fall through
     }
-    return item.value;
   }
 
-  const data = await safeRedisGet<TrendResponse>(key);
-  if (data) {
-    return data;
-  }
-
-  const fallback = getMemoryStore().trendCache.get(key);
-  if (!fallback) return null;
-  if (Date.now() > fallback.expiresAt) {
-    getMemoryStore().trendCache.delete(key);
-    return null;
-  }
-  return fallback.value;
+  return null;
 }
 
 export async function setTrendsCache(
@@ -230,23 +409,46 @@ export async function setTrendsCache(
   ttlSeconds = 600
 ): Promise<void> {
   const key = trendCacheKey(period, view, kind);
+  const expiresAt = Date.now() + ttlSeconds * 1000;
   getMemoryStore().trendCache.set(key, {
     value,
-    expiresAt: Date.now() + ttlSeconds * 1000,
+    expiresAt,
   });
 
-  if (!REDIS_ENABLED) {
-    return;
-  }
-
-  const redis = getRedisClient();
-  if (!redis) {
+  const sql = getSqlClient();
+  if (!sql || !(await ensureSchema())) {
     return;
   }
 
   try {
-    await redis.set(key, value, { ex: ttlSeconds });
+    await sql`
+      INSERT INTO ${sql.unsafe(TRENDS_CACHE_TABLE)} (
+        cache_key,
+        period,
+        view,
+        kind,
+        payload,
+        expires_at,
+        updated_at
+      )
+      VALUES (
+        ${key},
+        ${period},
+        ${view},
+        ${kind},
+        ${JSON.stringify(value)}::jsonb,
+        ${expiresAt},
+        ${Date.now()}
+      )
+      ON CONFLICT (cache_key) DO UPDATE SET
+        period = EXCLUDED.period,
+        view = EXCLUDED.view,
+        kind = EXCLUDED.kind,
+        payload = EXCLUDED.payload,
+        expires_at = EXCLUDED.expires_at,
+        updated_at = EXCLUDED.updated_at
+    `;
   } catch {
-    // ignore redis failures and keep in-memory cache
+    // ignore database failures and keep in-memory cache
   }
 }
