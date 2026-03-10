@@ -30,7 +30,7 @@ const SUBJECT_DIM_TABLE = "my9_subject_dim_v1";
 const TREND_COUNT_ALL_TABLE = "my9_trend_subject_all_v2";
 const TREND_COUNT_DAY_TABLE = "my9_trend_subject_day_v2";
 const TRENDS_CACHE_TABLE = "my9_trends_cache_v1";
-const TRENDS_CACHE_VERSION = "v4";
+const TRENDS_CACHE_VERSION = "v5";
 const TRENDS_SAMPLE_CACHE_VERSION = "v1";
 const SAMPLE_SUMMARY_CACHE_VIEW = "sample";
 const OVERALL_TREND_PAGE_SIZE = 20;
@@ -1253,6 +1253,12 @@ export async function getAggregatedTrendResponse(params: {
   const fromDayKey = fromTimestamp > 0 ? toUtcDayKey(fromTimestamp) : null;
   const overallOffset = Math.max(0, (overallPage - 1) * OVERALL_TREND_PAGE_SIZE);
   const yearFilterCondition = yearPage === "legacy" ? "d.release_year <= 2009" : "d.release_year >= 2010";
+  const genreExcludeCondition =
+    kind === "manga"
+      ? "AND genre <> '漫画'"
+      : kind === "lightnovel"
+        ? "AND genre NOT IN ('轻小说', '小说')"
+        : "";
 
   const sampleRows = (await sql.query(
     fromTimestamp > 0
@@ -1340,6 +1346,8 @@ export async function getAggregatedTrendResponse(params: {
             genre,
             SUM(count)::BIGINT AS total_count
           FROM expanded
+          WHERE 1 = 1
+            ${genreExcludeCondition}
           GROUP BY genre
           ORDER BY total_count DESC, genre ASC
           LIMIT ${GROUPED_BUCKET_LIMIT}
@@ -1525,6 +1533,8 @@ export async function getAggregatedTrendResponse(params: {
             genre,
             SUM(count)::BIGINT AS total_count
           FROM expanded
+          WHERE 1 = 1
+            ${genreExcludeCondition}
           GROUP BY genre
           ORDER BY total_count DESC, genre ASC
           LIMIT ${GROUPED_BUCKET_LIMIT}

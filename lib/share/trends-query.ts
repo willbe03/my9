@@ -151,6 +151,7 @@ export async function resolveTrendResponse(params: {
         buildTrendResponse({
           period,
           view,
+          kind,
           shares,
         }),
         { view, overallPage, yearPage }
@@ -162,6 +163,7 @@ export async function resolveTrendResponse(params: {
       buildTrendResponse({
         period,
         view,
+        kind,
         shares,
       }),
       { view, overallPage, yearPage }
