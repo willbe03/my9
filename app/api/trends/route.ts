@@ -8,13 +8,15 @@ import {
   resolveTrendResponse,
   TRENDS_STORE_CACHE_TTL_SECONDS,
 } from "@/lib/share/trends-query";
+const TRENDS_CDN_MAX_TTL_SECONDS = 300;
+
 function resolveCdnTtlSeconds(lastUpdatedAt: number): number {
   if (!Number.isFinite(lastUpdatedAt) || lastUpdatedAt <= 0) {
     return 60;
   }
   const elapsedSeconds = Math.max(0, Math.floor((Date.now() - lastUpdatedAt) / 1000));
   const remainingSeconds = TRENDS_STORE_CACHE_TTL_SECONDS - elapsedSeconds;
-  return Math.max(1, Math.min(TRENDS_STORE_CACHE_TTL_SECONDS, remainingSeconds));
+  return Math.max(1, Math.min(TRENDS_CDN_MAX_TTL_SECONDS, remainingSeconds));
 }
 
 function createTrendsCacheHeaders(cdnTtlSeconds: number) {

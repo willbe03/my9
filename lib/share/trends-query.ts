@@ -1,5 +1,6 @@
 import {
   getAggregatedTrendResponse,
+  getTrendSampleSummary,
   getTrendSampleSummaryCache,
   listSharesByPeriod,
   setTrendSampleSummaryCache,
@@ -121,17 +122,31 @@ export async function resolveTrendResponse(params: {
 
   const cached = await getTrendsCache(period, view, kind, overallPage, yearPage);
   if (cached) {
+    const mergedSampleCount = sampleSummary?.sampleCount ?? cached.sampleCount;
+    const cachedLooksStaleSuppressed =
+      cached.items.length === 0 && mergedSampleCount >= 30;
+
+    if (!cachedLooksStaleSuppressed) {
+      if (!sampleSummary) {
+        sampleSummary = toSampleSummary(cached);
+        await setTrendSampleSummaryCache(period, kind, sampleSummary, TRENDS_STORE_CACHE_TTL_SECONDS);
+      }
+      const refreshed = applySampleSummary(cached, sampleSummary);
+      return refreshed.sampleCount < 30
+        ? {
+            ...refreshed,
+            items: [],
+          }
+        : refreshed;
+    }
+
+    if (!sampleSummary) {
+      sampleSummary = await getTrendSampleSummary(period, kind);
+    }
     if (!sampleSummary) {
       sampleSummary = toSampleSummary(cached);
       await setTrendSampleSummaryCache(period, kind, sampleSummary, TRENDS_STORE_CACHE_TTL_SECONDS);
     }
-    const refreshed = applySampleSummary(cached, sampleSummary);
-    return refreshed.sampleCount < 30
-      ? {
-          ...refreshed,
-          items: [],
-        }
-      : refreshed;
   }
 
   let response: TrendResponse;

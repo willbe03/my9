@@ -244,6 +244,10 @@ export default function TrendsClientPage({
   initialError = "",
 }: TrendsClientPageProps) {
   const nowMs = Date.now();
+  const shouldRefetchOnMount = Boolean(
+    initialError ||
+      (initialData && initialData.sampleCount >= 30 && Array.isArray(initialData.items) && initialData.items.length === 0)
+  );
   const [kind, setKind] = useState<SubjectKind>(initialKind);
   const [period, setPeriod] = useState<TrendPeriod>(initialPeriod);
   const [view, setView] = useState<TrendView>(initialView);
@@ -253,7 +257,7 @@ export default function TrendsClientPage({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(initialError);
   const [showTopFab, setShowTopFab] = useState(false);
-  const skipFirstEffectRef = useRef(true);
+  const skipFirstEffectRef = useRef(!shouldRefetchOnMount);
   const requestOverallPage = view === "overall" ? overallPage : 1;
   const requestYearPage: TrendYearPage = view === "year" ? yearPage : "recent";
 
