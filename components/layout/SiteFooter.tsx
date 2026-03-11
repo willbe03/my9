@@ -122,6 +122,18 @@ export function SiteFooter({ className }: SiteFooterProps) {
       <p className="mt-2">
         开发者：苍旻白轮
       </p>
+      <p className="mt-1 text-[11px] text-slate-400">
+        音乐 &amp; 电影功能由{" "}
+        <a
+          href="https://github.com/willbe03"
+          target="_blank"
+          rel="noreferrer"
+          className="font-semibold text-sky-500 hover:underline"
+        >
+          @willbe03
+        </a>
+        {" "}贡献
+      </p>
       <div className="mt-2 flex items-center justify-center gap-4">
         <a href="https://weibo.com/u/6571509464" target="_blank" rel="noreferrer" aria-label="微博" className="text-gray-400 hover:text-gray-600">
           <FaWeibo className="h-5 w-5" />
