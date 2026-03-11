@@ -20,6 +20,18 @@ function displayName(game: ShareGame): string {
 
 function bangumiLink(game: ShareGame, cat?: number): string {
   const id = String(game.id || "").trim();
+  
+  // TMDB movies: link to TMDB
+  if (id.startsWith("tmdb-")) {
+    const tmdbId = id.replace("tmdb-", "");
+    return `https://www.themoviedb.org/movie/${tmdbId}`;
+  }
+  
+  // MusicBrainz release groups: link to MusicBrainz
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    return `https://musicbrainz.org/release-group/${id}`;
+  }
+  
   if (/^\d+$/.test(id)) {
     return `https://bgm.tv/subject/${id}`;
   }

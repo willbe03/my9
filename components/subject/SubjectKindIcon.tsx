@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpen, BookText, Clapperboard, Gamepad2, Shapes } from "lucide-react";
+import { BookOpen, BookText, Clapperboard, Disc3, Film, Gamepad2, Shapes } from "lucide-react";
 import { SubjectKind } from "@/lib/subject-kind";
 
 interface SubjectKindIconProps {
@@ -18,6 +18,10 @@ export function SubjectKindIcon({ kind, className }: SubjectKindIconProps) {
       return <BookOpen className={className} />;
     case "lightnovel":
       return <BookText className={className} />;
+    case "music":
+      return <Disc3 className={className} />;
+    case "movie":
+      return <Film className={className} />;
     case "work":
     default:
       return <Shapes className={className} />;

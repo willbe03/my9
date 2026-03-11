@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: "standalone",
   distDir: process.env.NEXT_DIST_DIR || ".next",
   images: {
     unoptimized: true,
@@ -23,6 +24,14 @@ const nextConfig = {
       {
         protocol: "https",
         hostname: "img.bgm.tv",
+      },
+      {
+        protocol: "https",
+        hostname: "coverartarchive.org",
+      },
+      {
+        protocol: "https",
+        hostname: "image.tmdb.org",
       },
     ],
   },

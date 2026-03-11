@@ -45,3 +45,4 @@ scripts/.migrate-shares-v1.checkpoint.json
 *.csv
 
 yarn.lock
+.env
